@@ -1,0 +1,1 @@
+going to do is PIP install crew aai and 
