@@ -17,7 +17,7 @@ def get_transcript(link: str):
     script = YouTubeTranscriptApi.get_transcript(video_id, languages=['tr'])
     file_name = f"{video_id}.txt"
     with open(file_name, 'w') as file: 
-        for i in range(len(script) - 1): # son texti görmezden geliyor ancak önemli değil
+        for i in range(len(script) - 1):
             line = script[i]
             next_line = script[i + 1]
             file.write(f"{line['text']} ['start']: {line['start']} ['end']: {next_line['start']}\n")
