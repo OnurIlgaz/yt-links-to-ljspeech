@@ -1,8 +1,11 @@
+import glob
 from youtube_transcript_api import YouTubeTranscriptApi
 import yt_dlp
 import urllib.parse as urllib
 import os
 from pydub import AudioSegment
+import ffmpeg
+from shutil import rmtree
 
 def id(link: str):
     url_data = urllib.urlparse(link)
@@ -20,13 +23,13 @@ def get_transcript(link: str):
             file.write(f"{line['text']} ['start']: {line['start']} ['end']: {next_line['start']}\n")
 
 def download_audio(link: str):
-    if os.path.exists("audio.mp3"):
-        os.remove("audio.mp3")
+    if os.path.exists("audio.wav"):
+        os.remove("audio.wav")
     ydl_opts = {
         'format': 'bestaudio/best',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
+            'preferredcodec': 'wav',
             'preferredquality': '192',
         }],
         'outtmpl': 'audio.%(ext)s',
@@ -43,7 +46,22 @@ def check_audio(audio: AudioSegment):
     if first_segment > threshold or last_segment > threshold:
         return False
     return True
-    
+
+def convert_audio(id: str):
+    print(f"Converting audio files for {id}")
+    folder_name = f"{id}"
+    dirlist = os.listdir(folder_name)
+    dirlist.sort()
+    for filename in dirlist:
+        if filename.endswith(".wav"):
+            audio_file = os.path.join(folder_name, filename)
+            temp_audio_file = os.path.join(folder_name, "temp.wav")
+            (ffmpeg.input(audio_file, format='wav')
+            .output(temp_audio_file, acodec='pcm_s16le', ac=1, ar=22050, loglevel='error')
+            .overwrite_output()
+            .run(capture_stdout=True))
+            os.remove(audio_file)
+            os.rename(temp_audio_file, audio_file)
 
 def scrape(link: str):
     video_id = id(link)
@@ -58,17 +76,17 @@ def scrape(link: str):
             start = float(line.split("['start']:")[1].split("['end']")[0])
             end = float(line.split("['end']:")[1])
             txt_file = f"{video_id}/{i}.txt"
-            mp3_file = f"{video_id}/{i}.mp3"
+            wav_file = f"{video_id}/{i}.wav"
             with open(txt_file, 'w') as txt:
                 txt.write(text)
-            audio = AudioSegment.from_file("audio.mp3")
+            audio = AudioSegment.from_file("audio.wav")
             audio = audio[start * 1000: end * 1000]
             if(check_audio(audio)):
-                audio.export(mp3_file, format="mp3")    
+                audio.export(wav_file, format="wav")    
             else:
                 print(f"Skipping {i} because of the audio quality") 
-                if os.path.exists(mp3_file):
-                    os.remove(mp3_file)
+                if os.path.exists(wav_file):
+                    os.remove(wav_file)
                 if os.path.exists(txt_file):
                     os.remove(txt_file)
 
@@ -77,10 +95,10 @@ def merge(folder_name: str):
     dirlist = os.listdir(folder_name)
     dirlist.sort()
     for filename in dirlist:
-        if filename.endswith(".mp3"):
+        if filename.endswith(".wav"):
             audio_file = os.path.join(folder_name, filename)
             text_file = os.path.join(folder_name, f"{os.path.splitext(filename)[0]}.txt")
-            next_audio_file = os.path.join(folder_name, f"{int(os.path.splitext(filename)[0]) + 1}.mp3")
+            next_audio_file = os.path.join(folder_name, f"{int(os.path.splitext(filename)[0]) + 1}.wav")
             next_text_file = os.path.join(folder_name, f"{int(os.path.splitext(filename)[0]) + 1}.txt")
             
             if os.path.exists(next_audio_file) and os.path.exists(next_text_file):
@@ -100,14 +118,51 @@ def merge(folder_name: str):
                 os.remove(audio_file)
                 os.remove(text_file)
                 
-                merged_audio.export(next_audio_file, format="mp3")
+                merged_audio.export(next_audio_file, format="wav")
         
 def generate_data(link: str):
     get_transcript(link)
     download_audio(link)
     scrape(link)
     merge(id(link))
+    convert_audio(id(link))
 
-link = "https://www.youtube.com/watch?v=D9MPeewRO_U"
-generate_data(link)
+def create_db():
+    if os.path.exists("LJSpeech"):
+        rmtree("LJSpeech") # erase db for clean start
+    os.makedirs("LJSpeech/wavs")
+    with open("LJSpeech/metadata.csv", 'a') as file:
+        pass
 
+def append_to_db(id: str):
+    folder_name = f"{id}"
+    with open("LJSpeech/metadata.csv", 'a') as db_file:
+        dirlist = os.listdir(folder_name)
+        dirlist.sort()
+        for filename in dirlist:
+            if filename.endswith(".txt"):
+                fileNameNoExtention = f"{id}-{os.path.splitext(filename)[0]}"
+                with open(os.path.join(folder_name, filename), 'r') as f:
+                    text = f.read()
+                db_file.write(f"{fileNameNoExtention}|{text}\n")
+            else:
+                filenameId = f"{id}-{filename}"
+                source_file = os.path.join(folder_name, filename)
+                destination_dir = "LJSpeech/wavs"
+                # Move the wav
+                os.rename(source_file, os.path.join(destination_dir, filenameId))
+    rmtree(folder_name)
+
+def main():
+    links = [
+        "https://www.youtube.com/watch?v=lpX_TXhQUXQ",
+    ]
+    for link in links:
+        rmtree(id(link), ignore_errors=True)
+        generate_data(link)
+    create_db()
+    for link in links:
+        append_to_db(id(link))
+
+if __name__ == "__main__":
+    main()

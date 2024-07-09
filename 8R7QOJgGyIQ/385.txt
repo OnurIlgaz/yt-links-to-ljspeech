@@ -1,1 +1,0 @@
-Define the stock that we want to analyze 

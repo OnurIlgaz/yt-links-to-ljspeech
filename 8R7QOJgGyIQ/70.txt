@@ -1,1 +1,0 @@
-Building lightning is really made for AI 
